@@ -53,5 +53,5 @@ def main():
             
     print(f"Successfully generated {num_lines} log entries in {log_file}")
 
-if __name__ == "__main__":hi
+if __name__ == "__main__":
     main()
