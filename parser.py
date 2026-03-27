@@ -21,4 +21,4 @@ if __name__ == "__main__":
     log_file_path = "simulated_access.log"
     
     # Execute the read function
-    logs = read_log_file(log_file_path)hi
+    logs = read_log_file(log_file_path)
