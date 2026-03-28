@@ -45,4 +45,4 @@ if __name__ == "__main__":
         target_ips = extract_unique_ips(logs)
         
         # Print a sample of 5 IPs to verify the logic works
-        print(f"[*] Sample of IPs extracted: {target_ips[:5]}")hi
+        print(f"[*] Sample of IPs extracted: {target_ips[:5]}")
