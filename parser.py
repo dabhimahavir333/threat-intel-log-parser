@@ -13,36 +13,52 @@ def read_log_file(filepath):
     print(f"[*] Successfully ingested {len(lines)} lines from {filepath}.")
     return lines
 
-def extract_unique_ips(log_lines):
+def parse_log_behaviors(log_lines):
     """
-    Parses raw log lines to extract unique IPv4 addresses.
-    Utilizes a Python 'set' to automatically drop duplicate IPs.
+    Extracts the IP, HTTP Method, URI, and Status Code.
+    Maps each unique IP to its request behavior (successes vs. failures).
     """
-    # Standard Regex pattern for matching an IPv4 address
-    ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b'
+    # Advanced Regex utilizing Named Capture Groups (?P<name>pattern)
+    log_pattern = re.compile(
+        r'(?P<ip>\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b)'   # Captures IP Address
+        r'.*?"(?P<method>[A-Z]+)'                      # Captures HTTP Method (GET, POST)
+        r'\s+(?P<uri>[^\s]+)'                          # Captures the URI requested
+        r'.*?"\s+(?P<status>\d{3})'                    # Captures the 3-digit Status Code
+    )
     
-    unique_ips = set()
+    ip_behaviors = {}
     
     for line in log_lines:
-        match = re.search(ip_pattern, line)
+        match = log_pattern.search(line)
         if match:
-            # If an IP is found, add it to the set
-            unique_ips.add(match.group())
+            ip = match.group('ip')
+            status = match.group('status')
             
-    print(f"[*] Extraction complete: Found {len(unique_ips)} unique IPs to investigate.")
-    
-    # Convert the set back to a list so it can be iterated over later
-    return list(unique_ips)
+            # Initialize the IP in our dictionary if it is the first time we see it
+            if ip not in ip_behaviors:
+                ip_behaviors[ip] = {'total_requests': 0, 'failed_attempts': 0, 'successful_attempts': 0}
+                
+            ip_behaviors[ip]['total_requests'] += 1
+            
+            # 4xx (Client Error) and 5xx (Server Error) often indicate scanning or brute-forcing
+            if status.startswith('4') or status.startswith('5'):
+                ip_behaviors[ip]['failed_attempts'] += 1
+            elif status.startswith('2'):
+                ip_behaviors[ip]['successful_attempts'] += 1
+                
+    print(f"[*] Behavioral parsing complete. Analyzed {len(ip_behaviors)} unique IPs.")
+    return ip_behaviors
 
 if __name__ == "__main__":
     log_file_path = "simulated_access.log"
     
-    # 1. Ingest the logs
     logs = read_log_file(log_file_path)
     
-    # 2. Extract the IPs
     if logs:
-        target_ips = extract_unique_ips(logs)
+        # Extract the behavioral data
+        threat_data = parse_log_behaviors(logs)
         
-        # Print a sample of 5 IPs to verify the logic works
-        print(f"[*] Sample of IPs extracted: {target_ips[:5]}")
+        # Print the data for the first 3 IPs to verify it works
+        sample_ips = list(threat_data.keys())[:3]
+        for ip in sample_ips:
+            print(f"IP: {ip} | Data: {threat_data[ip]}")
