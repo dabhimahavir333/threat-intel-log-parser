@@ -10,4 +10,4 @@ An automated Python-based security tool designed to ingest web server logs, pars
 
 ## Architecture
 * **Language:** Python 3.x
-* **Core Libraries:** `re` (regex processing), `requests` (API integration), `argparse` (CLI execution).hi
+* **Core Libraries:** `re` (regex processing), `requests` (API integration), `argparse` (CLI execution).
