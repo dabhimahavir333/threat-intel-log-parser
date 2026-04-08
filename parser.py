@@ -1,24 +1,35 @@
 import os
 import re
+import time
+import logging
 import requests
 from dotenv import load_dotenv
+from typing import List, Dict
+from tqdm import tqdm
 
-# Securely load API Key from the hidden .env file
+# Configure logging (Saving to a file and printing to console)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("parser_execution.log"),
+        logging.StreamHandler()
+    ]
+)
+
 load_dotenv()
 API_KEY = os.getenv('ABUSEIPDB_API_KEY')
 
-def read_log_file(filepath):
-    """Safely opens and reads a log file."""
+def read_log_file(filepath: str) -> List[str]:
     if not os.path.exists(filepath):
-        print(f"Error: The file '{filepath}' was not found.")
+        logging.error(f"The file '{filepath}' was not found.")
         return []
     with open(filepath, 'r') as file:
         lines = file.readlines()
-    print(f"[*] Successfully ingested {len(lines)} lines from {filepath}.")
+    logging.info(f"Successfully ingested {len(lines)} lines from {filepath}.")
     return lines
 
-def parse_log_behaviors(log_lines):
-    """Extracts the IP and maps request behavior."""
+def parse_log_behaviors(log_lines: List[str]) -> Dict[str, Dict[str, int]]:
     log_pattern = re.compile(
         r'(?P<ip>\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b)'
         r'.*?"(?P<method>[A-Z]+)'
@@ -38,40 +49,32 @@ def parse_log_behaviors(log_lines):
                 ip_behaviors[ip]['failed_attempts'] += 1
             elif status.startswith('2'):
                 ip_behaviors[ip]['successful_attempts'] += 1
-    print(f"[*] Behavioral parsing complete. Analyzed {len(ip_behaviors)} unique IPs.")
+    logging.info(f"Behavioral parsing complete. Analyzed {len(ip_behaviors)} unique IPs.")
     return ip_behaviors
 
-def check_ip_reputation(ip):
-    """
-    Queries the AbuseIPDB API for a specific IP address.
-    Returns the abuse confidence score (0 to 100).
-    """
+def check_ip_reputation(ip: str) -> int:
+    """Queries AbuseIPDB and returns the threat score."""
     url = 'https://api.abuseipdb.com/api/v2/check'
-    querystring = {
-        'ipAddress': ip,
-        'maxAgeInDays': '90'
-    }
-    headers = {
-        'Accept': 'application/json',
-        'Key': API_KEY
-    }
+    querystring = {'ipAddress': ip, 'maxAgeInDays': '90'}
+    headers = {'Accept': 'application/json', 'Key': API_KEY}
     
     try:
-        response = requests.request(method='GET', url=url, headers=headers, params=querystring)
+        response = requests.request(method='GET', url=url, headers=headers, params=querystring, timeout=10)
         if response.status_code == 200:
-            data = response.json()
-            return data['data']['abuseConfidenceScore']
+            return response.json()['data']['abuseConfidenceScore']
+        elif response.status_code == 429:
+            logging.warning("Rate limit hit! Halting API requests.")
+            return -1 # Custom code to indicate rate limit
         else:
-            print(f"[-] API Error for IP {ip}: Status {response.status_code}")
+            logging.error(f"API Error for IP {ip}: Status {response.status_code}")
             return None
-    except Exception as e:
-        print(f"[-] Connection Error: {e}")
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Connection Error: {e}")
         return None
 
 if __name__ == "__main__":
-    # Halt execution if the API key is missing
     if not API_KEY:
-        print("Error: ABUSEIPDB_API_KEY not found in .env file.")
+        logging.error("ABUSEIPDB_API_KEY not found in .env file.")
         exit()
 
     log_file_path = "simulated_access.log"
@@ -79,12 +82,28 @@ if __name__ == "__main__":
     
     if logs:
         threat_data = parse_log_behaviors(logs)
-        
-        print("\n[*] Commencing Threat Intelligence Enrichment (Testing first 5 IPs)...")
         unique_ips = list(threat_data.keys())
         
-        # Test only the first 5 to preserve your free tier API limits
-        for ip in unique_ips[:5]:
+        logging.info("Commencing Threat Intelligence Enrichment...")
+        
+        # We cap at 100 to protect your free API tier limits. 
+        target_ips = unique_ips[:100]
+        enriched_data = {}
+
+        # Wrap the loop in tqdm for a progress bar
+        for ip in tqdm(target_ips, desc="Querying AbuseIPDB", unit="ip"):
             score = check_ip_reputation(ip)
+            
+            if score == -1:
+                break # Stop the loop entirely if rate limit is hit
+                
             if score is not None:
-                print(f"IP: {ip} | Total Requests: {threat_data[ip]['total_requests']} | Abuse Score: {score}%")
+                enriched_data[ip] = {
+                    'behavior': threat_data[ip],
+                    'abuse_score': score
+                }
+            
+            # STRICT RATE LIMITING: Pause for 1 second between requests
+            time.sleep(1) 
+            
+        logging.info(f"Enrichment complete. Successfully scored {len(enriched_data)} IPs.")
